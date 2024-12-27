@@ -50,7 +50,7 @@ import meshtastic.tcp_interface
 import time
 from datetime import datetime
 import traceback
-from meshtastic.mesh_pb2 import _HARDWAREMODEL
+from meshtastic import mesh_pb2
 from meshtastic.node import Node
 from pubsub import pub
 import argparse
@@ -247,7 +247,10 @@ class TextWindow(object):
                 
         #unbold Previous line  
         self.TextWindow.attron(curses.color_pair(self.PreviousLineColor))
-        self.TextWindow.addstr(self.PreviousLineRow,self.StartColumn,self.PreviousLineText)
+        try:
+          self.TextWindow.addstr(self.PreviousLineRow,self.StartColumn,self.PreviousLineText)
+        except curses.error:
+          pass
         self.TextWindow.attroff(curses.color_pair(self.PreviousLineColor))
 
 
@@ -267,7 +270,10 @@ class TextWindow(object):
 
           #print new line in bold        
           self.TextWindow.attron(curses.color_pair(Color))
-          self.TextWindow.addstr(self.CurrentRow,self.StartColumn,PrintableString,curses.A_BOLD)
+          try:
+            self.TextWindow.addstr(self.CurrentRow,self.StartColumn,PrintableString,curses.A_BOLD)
+          except curses.error:
+            pass
           self.TextWindow.attroff(curses.color_pair(Color))
         else:
           #print new line in Regular
@@ -812,12 +818,15 @@ def onReceive(packet, interface): # called when a packet arrives
     
     PacketsReceived = PacketsReceived + 1
     
-
     Window2.ScrollPrint("onReceive",2,TimeStamp=True)
     Window4.ScrollPrint(" ",2)    
     Window4.ScrollPrint("==Packet RECEIVED======================================",2)
 
+    if not packet:
+        return
     Decoded  = packet.get('decoded')
+    if not Decoded:
+        return
     Message  = Decoded.get('text')
     To       = packet.get('to')
     From     = packet.get('from')
@@ -1278,8 +1287,9 @@ def DisplayNodes(interface):
       for node in (interface.nodes.values()):
         Pad1.PadPrint("NAME: {}".format(node['user']['longName']),3)  
         Pad1.PadPrint("NODE: {}".format(node['num']),3)  
-        Pad1.PadPrint("ID:   {}".format(node['user']['id']),3)  
-        Pad1.PadPrint("MAC:  {}".format(node['user']['macaddr']),3)  
+        Pad1.PadPrint("ID:   {}".format(node['user']['id']),3)
+        if 'macaddr' in node['user']:
+            Pad1.PadPrint("MAC:  {}".format(node['user']['macaddr']),3)
         
 
         if 'position' in node.keys():
