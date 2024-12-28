@@ -834,6 +834,12 @@ def onReceive(packet, interface): # called when a packet arrives
     #Even better method, use this recursively to decode all the packets of packets
     DecodePacket('MainPacket',packet,Filler='',FillerChar='',PrintSleep=PrintSleep)
 
+    # find the node name to print with the message, instead of the opaque ID
+    for node in (interface.nodes.values()):
+      if str(From) == str(node['num']):
+        From = node['user']['longName']
+        break
+
     if(Message):
       Window3.ScrollPrint("From: {} - {}".format(From,Message),2,TimeStamp=True)
     Window4.ScrollPrint("=======================================================",2)
