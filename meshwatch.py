@@ -385,32 +385,34 @@ class TextWindow(object):
 
 
 
-
-
-
-
 class TextPad(object):
   #use this as a virtual notepad
   #write a large amount of data to it, then display a section of it on the screen
   #to have a border, use another window with a border
   def __init__(self,name, rows,columns,y1,x1,y2,x2,ShowBorder,BorderColor):
     self.name              = name
-    self.rows              = rows
+    self.winrows           = rows
+    self.padrows           = rows
     self.columns           = columns
+    self.winstartY         = 0
     self.y1                = y1 #These are coordinates for the window corners on the screen
     self.x1                = x1 #These are coordinates for the window corners on the screen
     self.y2                = y2 #These are coordinates for the window corners on the screen
     self.x2                = x2 #These are coordinates for the window corners on the screen
     self.ShowBorder        = ShowBorder
     self.BorderColor       = BorderColor #pre defined text colors 1-7
-    self.TextPad           = curses.newpad(self.rows,self.columns)
+    self.TextPad           = curses.newpad(self.padrows,self.columns)
     self.PreviousLineColor = 2
          
   def PadPrint(self,PrintLine,Color=2,TimeStamp=False): 
     #print to the pad
     try:
-      self.TextPad.idlok(1)
-      self.TextPad.scrollok(1)
+      # add line to bottom of pad if necessary
+      (cury,curx) = self.TextPad.getyx()
+      (maxy,maxx) = self.TextPad.getmaxyx()
+      if cury + 1 == maxy:
+          self.padrows += 1
+          self.TextPad.resize(self.padrows, self.columns)
 
       current_time = datetime.now().strftime("%H:%M:%S")
       if (TimeStamp):
@@ -418,14 +420,19 @@ class TextPad(object):
 
       #expand tabs to X spaces, pad the string with space then truncate
       PrintLine = PrintLine.expandtabs(4)
-      PrintLine = PrintLine.ljust(self.columns,' ')
+      if len(PrintLine) < self.columns:
+        PrintLine = PrintLine.ljust(self.columns,' ')
+      else:
+        PrintLine = PrintLine[:self.columns]
       
       self.TextPad.attron(curses.color_pair(Color))
-      self.TextPad.addstr(PrintLine)
+      self.TextPad.addstr(cury, 0, PrintLine)
       self.TextPad.attroff(curses.color_pair(Color))
 
-      #We will refresh after a series of calls instead of every update
-      self.TextPad.refresh(0,0,self.y1,self.x1,self.y1 + self.rows,self.x1 + self.columns)
+      if cury + 1 == maxy:
+          (cury,curx) = self.TextPad.getyx()
+          self.winstartY = cury - self.winrows
+      self.TextPad.refresh(self.winstartY,0, self.y1,self.x1, self.y1 + self.winrows - 1,self.x1 + self.columns - 1)
 
     except Exception as ErrorMessage:
       time.sleep(2)
@@ -436,14 +443,27 @@ class TextPad(object):
 
   def Clear(self):
     try:
+      self.padrows = self.winrows
+      self.winstartY = 0
+      self.TextPad.resize(self.padrows, self.columns)
       self.TextPad.erase()
-      #self.TextPad.noutrefresh(0,0,self.y1,self.x1,self.y1 + self.rows,self.x1 + self.columns)
-      self.TextPad.refresh(0,0,self.y1,self.x1,self.y1 + self.rows,self.x1 + self.columns)
+      self.TextPad.refresh(0,0,self.y1,self.x1,self.y1 + self.winrows - 1, self.x1 + self.columns - 1)
     except Exception as ErrorMessage:
       TraceMessage = traceback.format_exc()
       AdditionalInfo = "erasing textpad"
       ErrorHandler(ErrorMessage,TraceMessage,AdditionalInfo)
-
+  
+  def ScrollUp(self):
+    if self.winstartY == 0:
+      return
+    self.winstartY -= 1
+    self.TextPad.refresh(self.winstartY,0, self.y1,self.x1, self.y1 + self.winrows - 1,self.x1 + self.columns - 1)
+  
+  def ScrollDown(self):
+    if self.winstartY + self.winrows >= self.padrows:
+      return
+    self.winstartY += 1
+    self.TextPad.refresh(self.winstartY,0, self.y1,self.x1, self.y1 + self.winrows - 1,self.x1 + self.columns - 1)
 
 
 
@@ -572,19 +592,19 @@ def CreateTextWindows():
   Window5Length = 95
   Window5x1 = Window4x2 + 1
   Window5y1 = Window4y1
-  Window5x2 = Window5x1 + Window5Length
-  Window5y2 = Window5y1 + Window5Height
+  Window5x2 = Window5x1 + Window5Length - 1
+  Window5y2 = Window5y1 + Window5Height - 1
   
   # Coordinates (scrolling pad/window for showing keys being decoded)
-  Pad1Columns = Window5Length -2
-  Pad1Lines   = Window5Height -2
-  Pad1x1 = Window5x1+1
-  Pad1y1 = Window5y1+1
-  Pad1x2 = Window5x2 -1
-  Pad1y2 = Window5y2 -1
+  Pad1Columns = Window5Length - 2
+  Pad1Lines   = Window5Height - 2
+  Pad1x1 = Window5x1 + 1
+  Pad1y1 = Window5y1 + 1
+  Pad1x2 = Window5x2 - 1
+  Pad1y2 = Window5y2 - 1
 
   #Help Window
-  HelpWindowHeight = 11
+  HelpWindowHeight = 12
   HelpWindowLength = 35
   HelpWindowx1 = Window5x2 + 1
   HelpWindowy1 = Window5y1
@@ -927,24 +947,32 @@ def PollKeyboard():
   try:
     c = chr(stdscr.getch())
   except Exception as ErrorMessage:
-    c=""
+    return False
 
+  # convert escape sequences to special key values
+  if ord(c) == 27:
+    try:
+      c2 = stdscr.getch()
+    except:
+      return False
+    if c2 != 91:
+      return False
+    try:
+      c2 = stdscr.getch()
+    except:
+      return False
+    if c2 == 65:
+      c = chr(curses.KEY_UP)
+    elif c2 == 66:
+      c = chr(curses.KEY_DOWN)
+    else:
+      return False
 
-  #Look for digits (ascii 48-57 == digits 0-9)
-  if (c >= '0' and c <= '9'):
-    #print ("Digit detected")
-    #StatusWindow.ScrollPrint("Digit Detected",2)
-    ReturnChar = (c)    
+  if c == "":
+    return False
 
-  if (c != ""):
-    #print ("----------------")
-    #print ("Key Pressed: ",Key)
-    #print ("----------------")
-    OutputLine = "Key Pressed: " + c
-    #Window2.ScrollPrint(OutputLine,4)
-    ProcessKeypress(c)
-  return ReturnChar
-
+  ProcessKeypress(c)
+  return True
 
 
 def ProcessKeypress(Key):
@@ -959,8 +987,8 @@ def ProcessKeypress(Key):
   global OldPrintSleep 
   count  = 0
 
-  OutputLine = "KEYPRESS: [" + str(Key) + "]"
-  Window2.ScrollPrint (OutputLine,5)
+  #OutputLine = "KEYPRESS: [" + str(ord(Key)) + "]"
+  #Window2.ScrollPrint (OutputLine,5)
   # c = clear screen
   # i = get node info
   # l = show system LOGS (dmesg)
@@ -1021,7 +1049,12 @@ def ProcessKeypress(Key):
 
   elif (Key == "t"):
     TestMesh(interface,5,10)
-
+  
+  elif ord(Key) == curses.KEY_UP:
+    Pad1.ScrollUp()
+  
+  elif ord(Key) == curses.KEY_DOWN:
+    Pad1.ScrollDown()
 
 
 def SendMessagePacket(interface, Message=''):
@@ -1041,19 +1074,14 @@ def SendMessagePacket(interface, Message=''):
 
     SendMessageWindow.TextWindow.refresh()
     
-    #Show cursor
-    
-    curses.curs_set(True)
     # Let the user edit until Ctrl-G is struck.
-    
+    curses.curs_set(True)
     InputMessageWindow.TextWindow.erase()
     InputMessageBox.edit()
     curses.curs_set(False)
 
-
     # Get resulting contents
-
-    TheMessage = InputMessageBox.gather().replace("\n", " ")
+    TheMessage = InputMessageBox.gather().replace("\n", "")
     
     #remove last character which seems to be interfering with line printing
     TheMessage = TheMessage[0:-1]
@@ -1081,10 +1109,12 @@ def SendMessagePacket(interface, Message=''):
 
 def GoToSleep(TimeToSleep):
   Window2.ScrollPrint("GoToSleep({})".format(TimeToSleep),2,TimeStamp=True)
-  for i in range (0,(TimeToSleep * 10)):
+  i = 0
+  while i < TimeToSleep * 10:
     #Check for keyboard input      --
-    PollKeyboard()
-    time.sleep(0.1)
+    if PollKeyboard() == False:
+     time.sleep(0.1)
+     i += 1
 
 def ClearAllWindows():
   Window1.Clear()
@@ -1221,6 +1251,7 @@ def DisplayHelpInfo():
   HelpWindow.ScrollPrint("R - RESTART MeshWatch",7)
   HelpWindow.ScrollPrint("S - SEND message",7)
   HelpWindow.ScrollPrint("T - TEST mesh network",7)
+  HelpWindow.ScrollPrint("⬆⬇ - Scroll Extended Info",7)
   HelpWindow.ScrollPrint("SPACEBAR - Slow/Fast output",7)
   
   
